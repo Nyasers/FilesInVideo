@@ -75,15 +75,6 @@
           <p class="progress-text">{{ decPhase || '解码中…' }}</p>
         </div>
 
-        <div v-if="decResult && decResult.length" class="result">
-          <p>✅ 解码完成，{{ decResult.length }} 个文件</p>
-          <ul class="file-list">
-            <li v-for="(f, i) in decResult" :key="i">
-              <a :href="blobUrl(f.blob)" :download="f.name">{{ f.name }} ({{ formatSize(f.size) }})</a>
-            </li>
-          </ul>
-        </div>
-
         <div v-if="decError" class="error">{{ decError }}</div>
       </section>
     </main>
@@ -93,6 +84,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import FileInput from './components/FileInput.vue';
+import { waitForSw, sendToSw, triggerDownload } from './sw-client';
 
 const mode = ref<'encode' | 'decode'>('encode');
 
@@ -112,8 +104,14 @@ function terminateWorker() {
   worker = null;
 }
 
-onMounted(initWorker);
-onUnmounted(terminateWorker);
+onMounted(() => {
+  initWorker();
+  navigator.serviceWorker?.addEventListener('message', onSwMsg);
+});
+onUnmounted(() => {
+  terminateWorker();
+  navigator.serviceWorker?.removeEventListener('message', onSwMsg);
+});
 
 // ── Encode State ──
 
@@ -128,13 +126,10 @@ const encProgress = ref(0);
 
 const canEncode = computed(() => coverFile.value && encodeFiles.value.length > 0 && !encoding.value);
 
-interface DecFile { name: string; size: number; blob: Blob }
-
 // ── Decode State ──
 
 const fivFile = ref<File | null>(null);
 const decPassword = ref('');
-const decResult = ref<DecFile[] | null>(null);
 const decError = ref('');
 const decoding = ref(false);
 
@@ -149,13 +144,37 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function blobUrl(blob: Blob) { return URL.createObjectURL(blob); }
-
 function onCoverSelect(f: File) { coverFile.value = f; encResult.value = null; encError.value = ''; }
 function onFilesSelect(fs: File[]) { encodeFiles.value = fs; encResult.value = null; encError.value = ''; }
 function onFivSelect(f: File) { fivFile.value = f; decResult.value = null; decError.value = ''; }
 
-// ── Worker 消息处理 ──
+// ── SW 消息处理（解码）──
+
+function onSwMsg(e: MessageEvent) {
+  const msg = e.data;
+  if (!msg?.type) return;
+
+  switch (msg.type) {
+    case 'dec-progress':
+      decProgress.value = msg.pct;
+      decPhase.value = msg.phase;
+      break;
+    case 'decode-ready': {
+      const jobId = msg.jobId;
+      for (let i = 0; i < msg.files.length; i++) {
+        triggerDownload(`/fiv-extract?id=${encodeURIComponent(jobId)}&idx=${i}`);
+      }
+      decoding.value = false;
+      break;
+    }
+    case 'decode-error':
+      decError.value = msg.error;
+      decoding.value = false;
+      break;
+  }
+}
+
+// ── Worker 消息处理（编码）──
 
 function onWorkerMsg(e: MessageEvent) {
   const msg = e.data;
@@ -179,23 +198,6 @@ function onWorkerMsg(e: MessageEvent) {
       }).catch(() => {});
       writeHandle = null;
       encoding.value = false;
-      break;
-    case 'dec-progress':
-      decProgress.value = msg.pct;
-      decPhase.value = msg.phase;
-      break;
-    case 'dec-file': {
-      const blob = new Blob([msg.data]);
-      if (!decResult.value) decResult.value = [];
-      decResult.value.push({ name: msg.name, size: msg.size, blob });
-      break;
-    }
-    case 'dec-done':
-      decoding.value = false;
-      break;
-    case 'dec-error':
-      decError.value = msg.error;
-      decoding.value = false;
       break;
     case 'error':
       writeHandle?.close().catch(() => {});
@@ -248,20 +250,21 @@ async function doEncode() {
   }
 }
 
-// ── 解码 ──
+// ── 解码（SW 接管，iframe 触发浏览器原生下载）──
 
 async function doDecode() {
   if (!fivFile.value) return;
   decError.value = '';
-  decResult.value = null;
   decoding.value = true;
   decProgress.value = 0;
   decPhase.value = '';
 
-  initWorker();
+  await waitForSw();
 
-  worker!.postMessage({
+  const jobId = Date.now().toString(36);
+  sendToSw({
     type: 'decode',
+    jobId,
     blob: fivFile.value,
     password: decPassword.value,
   });

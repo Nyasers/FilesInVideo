@@ -3,7 +3,6 @@
  */
 
 import { prepareEncode, buildStream } from './lib/encoder';
-import { decode } from './lib/decoder';
 import type { FileEntry } from './lib/types';
 
 let cancelFlag = false;
@@ -63,35 +62,6 @@ self.onmessage = async (event: MessageEvent) => {
       });
     } catch (e: any) {
       self.postMessage({ type: 'error', error: e.message || String(e) });
-    }
-  } else if (msg.type === 'decode') {
-    cancelFlag = false;
-    try {
-      const { blob, password } = msg;
-
-      const result = await decode({
-        blob,
-        password,
-        onProgress: (phase, pct) => {
-          if (cancelFlag) throw new Error('已取消');
-          self.postMessage({ type: 'dec-progress', phase, pct });
-        },
-      });
-
-      if (cancelFlag) throw new Error('已取消');
-
-      // 逐个文件投递，transfer buffer 零拷贝
-      for (const file of result.files) {
-        const buf = new Uint8Array(await file.blob.arrayBuffer());
-        self.postMessage(
-          { type: 'dec-file', name: file.name, size: file.size, data: buf.buffer },
-          [buf.buffer],
-        );
-      }
-
-      self.postMessage({ type: 'dec-done' });
-    } catch (e: any) {
-      self.postMessage({ type: 'dec-error', error: e.message || String(e) });
     }
   } else if (msg.type === 'cancel') {
     cancelFlag = true;
