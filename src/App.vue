@@ -101,6 +101,20 @@ const progress = ref('');
 const encProgress = ref(0);
 const canEncode = computed(() => coverFile.value && encodeFiles.value.length > 0 && !encoding.value);
 
+let encDoneFlag = false;
+let encPendingChunks = 0;
+let encFileCount = 0, encTotalSize = 0, encAudioFrames = 0;
+
+function checkEncDone() {
+  if (encDoneFlag && encPendingChunks === 0) {
+    writeHandle?.close().then(() => {
+      encResult.value = { fileCount: encFileCount, totalDataSize: encTotalSize, audioFrames: encAudioFrames };
+    }).catch(() => {});
+    writeHandle = null;
+    encoding.value = false;
+  }
+}
+
 // ── Decode State ──
 
 const fivFile = ref<File | null>(null);
@@ -156,18 +170,17 @@ function onWorkerMsg(e: MessageEvent) {
       progress.value = msg.phase;
       break;
     case 'chunk':
-      writeHandle?.write(new Uint8Array(msg.data)).catch(() => {});
+      encPendingChunks++;
+      writeHandle?.write(new Uint8Array(msg.data))
+        .finally(() => { encPendingChunks--; checkEncDone(); })
+        .catch(() => {});
       break;
     case 'done':
-      writeHandle?.close().then(() => {
-        encResult.value = {
-          fileCount: msg.fileCount,
-          totalDataSize: msg.totalDataSize,
-          audioFrames: msg.audioFrames,
-        };
-      }).catch(() => {});
-      writeHandle = null;
-      encoding.value = false;
+      encFileCount = msg.fileCount;
+      encTotalSize = msg.totalDataSize;
+      encAudioFrames = msg.audioFrames;
+      encDoneFlag = true;
+      checkEncDone();
       break;
     // Decode
     case 'dec-progress':
@@ -188,6 +201,8 @@ function onWorkerMsg(e: MessageEvent) {
     case 'error':
       writeHandle?.close().catch(() => {});
       writeHandle = null;
+      encDoneFlag = false;
+      encPendingChunks = 0;
       encError.value = msg.error;
       encoding.value = false;
       break;
@@ -210,6 +225,8 @@ async function doEncode() {
   encoding.value = true;
   encProgress.value = 0;
   progress.value = '';
+  encDoneFlag = false;
+  encPendingChunks = 0;
   try {
     if (!('showSaveFilePicker' in window)) throw new Error('浏览器不支持，请使用 Chrome / Edge');
     const ext = '.fiv.mp4';
