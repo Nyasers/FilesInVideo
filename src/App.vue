@@ -203,16 +203,27 @@ function onWorkerMsg(e: MessageEvent) {
       encPrepProgress.value = 100;
       encPhase.value = 'build';
       break;
+    case 'header-size':
+      encHeaderSize = msg.size;
+      break;
     case 'chunk':
       encPendingChunks++;
-      writeHandle?.write(new Uint8Array(msg.data))
-        .finally(() => {
+      const _buf = new Uint8Array(msg.data);
+      if (msg.pos != null) {
+        writeHandle!.write({ type: 'write', position: encHeaderSize + encMdatWritten, data: _buf })
+          .finally(() => {
+            encBytesWritten += msg.size;
+            encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
+            encPendingChunks--; checkEncDone();
+          }).catch(() => {});
+      } else {
+        writeHandle!.write(_buf).finally(() => {
           encBytesWritten += msg.size;
-          if (encTotalSize > 0) encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
-          encPendingChunks--;
-          checkEncDone();
-        })
-        .catch(() => {});
+          encMdatWritten += msg.size;
+          encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
+          encPendingChunks--; checkEncDone();
+        }).catch(() => {});
+      }
       break;
     case 'done':
       encFileCount = msg.fileCount;

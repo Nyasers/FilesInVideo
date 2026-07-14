@@ -52,6 +52,9 @@ self.onmessage = async (event: MessageEvent) => {
 
       if (cancelFlag) throw new Error('已取消');
 
+      // 最后 seek 回位置 0 写入 header
+      self.postMessage({ type: 'chunk', data: headerBuf.slice(0).buffer, size: headerBuf.length, pos: 0 }, [headerBuf.slice(0).buffer]);
+
       self.postMessage({
         type: 'done',
         fileCount: prep.fileCount,

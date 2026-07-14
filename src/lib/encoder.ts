@@ -97,6 +97,7 @@ export async function prepareEncode(options: EncodeOptions): Promise<PrepareResu
 export function buildStream(
   prep: PrepareResult,
   files: FileEntry[],
+  skipHeader = false,
 ): ReadableStream<Uint8Array> {
   const { cover, key, sample0Data, sample0Size, audioSizes, mdatTotalSize } = prep;
   const sizes = [...audioSizes];
@@ -110,9 +111,11 @@ export function buildStream(
   // 异步处理器：填充 chunks 队列
   async function producer(controller: ReadableStreamDefaultController<Uint8Array>) {
     try {
-      // header
-      const headerBuf = new Uint8Array(await prep.headerBlob.arrayBuffer());
-      push(controller, headerBuf);
+      // header（允许跳过，用于 seek-to-end 模式）
+      if (!skipHeader) {
+        const headerBuf = new Uint8Array(await prep.headerBlob.arrayBuffer());
+        push(controller, headerBuf);
+      }
       push(controller, buildMdatHeader(mdatTotalSize));
 
       // 视频数据：整块复制（避免逐帧切片偏移计算错误）
