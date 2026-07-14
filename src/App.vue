@@ -205,7 +205,6 @@ function onWorkerMsg(e: MessageEvent) {
       break;
     case 'header-size':
       encHeaderSize = msg.size;
-      writeHandle!.write({ type: 'seek', position: encHeaderSize });
       break;
     case 'chunk':
       encPendingChunks++;
