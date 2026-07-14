@@ -35,6 +35,7 @@ self.onmessage = async (event: MessageEvent) => {
 
       // 2. 流式编码，逐 chunk 投递
       const total = prep.headerBlob.size + prep.mdatTotalSize;
+      self.postMessage({ type: 'enc-size', total });
       const stream = buildStream(prep, fileEntries);
       const reader = stream.getReader();
       let written = 0;
@@ -50,7 +51,7 @@ self.onmessage = async (event: MessageEvent) => {
           pct: 30 + Math.round((written / total) * 70),
         });
         const copy = new Uint8Array(value!);
-        self.postMessage({ type: 'chunk', data: copy.buffer }, [copy.buffer]);
+            self.postMessage({ type: 'chunk', data: copy.buffer, size: copy.length }, [copy.buffer]);
       }
 
       if (cancelFlag) throw new Error('已取消');

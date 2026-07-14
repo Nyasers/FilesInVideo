@@ -31,7 +31,16 @@
           </div>
         </div>
         <div v-if="encoding" class="progress-wrap">
-          <div class="progress-bar"><div class="progress-fill" :style="{ width: encProgress + '%' }"></div></div>
+          <div class="progress-row">
+            <span class="progress-label">准备</span>
+            <div class="progress-bar"><div class="progress-fill" :style="{ width: encPrepProgress + '%' }"></div></div>
+            <span class="progress-pct">{{ encPrepProgress }}%</span>
+          </div>
+          <div class="progress-row">
+            <span class="progress-label">写盘</span>
+            <div class="progress-bar"><div class="progress-fill" :style="{ width: encWriteProgress + '%' }"></div></div>
+            <span class="progress-pct">{{ encWriteProgress }}%</span>
+          </div>
           <p class="progress-text">{{ progress || '准备中…' }}</p>
         </div>
         <button class="btn primary" :disabled="!canEncode || encoding" @click="doEncode">
@@ -98,7 +107,9 @@ const encResult = ref<{ fileCount: number; totalDataSize: number; audioFrames: n
 const encError = ref('');
 const encoding = ref(false);
 const progress = ref('');
-const encProgress = ref(0);
+const encPrepProgress = ref(0);
+const encWriteProgress = ref(0);
+let encBytesWritten = 0;
 const canEncode = computed(() => coverFile.value && encodeFiles.value.length > 0 && !encoding.value);
 
 let encDoneFlag = false;
@@ -166,11 +177,16 @@ function onWorkerMsg(e: MessageEvent) {
   switch (msg.type) {
     // Encode
     case 'progress':
-      encProgress.value = msg.pct;
+      encPrepProgress.value = msg.pct;
       progress.value = msg.phase;
+      break;
+    case 'enc-size':
+      encTotalSize = msg.total;
       break;
     case 'chunk':
       encPendingChunks++;
+      encBytesWritten += msg.size;
+      if (encTotalSize > 0) encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
       writeHandle?.write(new Uint8Array(msg.data))
         .finally(() => { encPendingChunks--; checkEncDone(); })
         .catch(() => {});
@@ -223,7 +239,9 @@ async function doEncode() {
   encError.value = '';
   encResult.value = null;
   encoding.value = true;
-  encProgress.value = 0;
+  encPrepProgress.value = 0;
+  encWriteProgress.value = 0;
+  encBytesWritten = 0;
   progress.value = '';
   encDoneFlag = false;
   encPendingChunks = 0;
