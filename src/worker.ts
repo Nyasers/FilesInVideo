@@ -33,10 +33,12 @@ self.onmessage = async (event: MessageEvent) => {
 
       if (cancelFlag) throw new Error('已取消');
 
-      // 2. 流式编码（header 先写，mdat 顺序跟）
-      const total = prep.headerBlob.size + prep.mdatTotalSize;
-      self.postMessage({ type: 'enc-size', total });
-      const stream = buildStream(prep, fileEntries);
+      // 提取 header，主线程 truncate 预留空间后定位写入 mdat
+      const headerBuf = new Uint8Array(await prep.headerBlob.arrayBuffer());
+      self.postMessage({ type: 'enc-size', total: headerBuf.byteLength + prep.mdatTotalSize });
+      self.postMessage({ type: 'header-size', size: headerBuf.byteLength });
+
+      const stream = buildStream(prep, fileEntries, true);
       const reader = stream.getReader();
       let written = 0;
 
@@ -45,12 +47,15 @@ self.onmessage = async (event: MessageEvent) => {
         const { done, value } = await reader.read();
         if (done) break;
         written += value!.length;
-        self.postMessage({ type: 'enc-progress', pct: Math.round((written / total) * 100) });
+        self.postMessage({ type: 'enc-progress', pct: Math.round((written / prep.mdatTotalSize) * 100) });
         const copy = new Uint8Array(value!);
-        self.postMessage({ type: 'chunk', data: copy.buffer, size: copy.length }, [copy.buffer]);
+        self.postMessage({ type: 'chunk', data: copy.buffer, size: copy.length, pos: headerBuf.byteLength + written - copy.length }, [copy.buffer]);
       }
 
       if (cancelFlag) throw new Error('已取消');
+
+      // header 写入位置 0
+      self.postMessage({ type: 'chunk', data: headerBuf.buffer, size: headerBuf.length, pos: 0 }, [headerBuf.buffer]);
 
       self.postMessage({
         type: 'done',

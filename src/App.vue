@@ -124,6 +124,7 @@ const encBuildProgress = ref(0);
 const encWriteProgress = ref(0);
 const encPhase = ref<'prep' | 'build'>('prep');
 let encBytesWritten = 0;
+let encHeaderSize = 0;
 const canEncode = computed(() => coverFile.value && encodeFiles.value.length > 0 && !encoding.value);
 
 let encDoneFlag = false;
@@ -200,13 +201,18 @@ function onWorkerMsg(e: MessageEvent) {
       break;
     case 'enc-size':
       encTotalSize = msg.total;
+      writeHandle!.write({ type: 'truncate', size: encTotalSize });
       encPrepProgress.value = 100;
       encPhase.value = 'build';
+      break;
+    case 'header-size':
+      encHeaderSize = msg.size;
       break;
     case 'chunk':
       encPendingChunks++;
       const _buf2 = new Uint8Array(msg.data);
-      writeHandle!.write(_buf2)
+      const writePos = msg.pos ?? encHeaderSize + encBytesWritten;
+      writeHandle!.write({ type: 'write', position: writePos, data: _buf2 })
         .finally(() => {
           encBytesWritten += msg.size;
           if (encTotalSize > 0) encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
