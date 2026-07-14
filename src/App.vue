@@ -205,25 +205,20 @@ function onWorkerMsg(e: MessageEvent) {
       break;
     case 'header-size':
       encHeaderSize = msg.size;
+      writeHandle!.write({ type: 'seek', position: encHeaderSize });
       break;
     case 'chunk':
       encPendingChunks++;
-      const _buf = new Uint8Array(msg.data);
-      if (msg.pos != null) {
-        writeHandle!.write({ type: 'write', position: encHeaderSize + encMdatWritten, data: _buf })
-          .finally(() => {
-            encBytesWritten += msg.size;
-            encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
-            encPendingChunks--; checkEncDone();
-          }).catch(() => {});
-      } else {
-        writeHandle!.write(_buf).finally(() => {
-          encBytesWritten += msg.size;
-          encMdatWritten += msg.size;
-          encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
-          encPendingChunks--; checkEncDone();
-        }).catch(() => {});
-      }
+      const _buf2 = new Uint8Array(msg.data);
+      const w = msg.pos != null
+        ? writeHandle!.write({ type: 'write', position: msg.pos, data: _buf2 })
+        : writeHandle!.write(_buf2);
+      if (msg.pos == null) encMdatWritten += msg.size;
+      w.finally(() => {
+        encBytesWritten += msg.size;
+        encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
+        encPendingChunks--; checkEncDone();
+      }).catch(() => {});
       break;
     case 'done':
       encFileCount = msg.fileCount;
