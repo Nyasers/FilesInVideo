@@ -33,14 +33,10 @@ self.onmessage = async (event: MessageEvent) => {
 
       if (cancelFlag) throw new Error('已取消');
 
-      // 2. 提取 header，主线程 seek 到 headerSize 后再写 mdat
-      const headerBuf = new Uint8Array(await prep.headerBlob.arrayBuffer());
-      const headerSize = headerBuf.byteLength;
-      self.postMessage({ type: 'enc-size', total: headerSize + prep.mdatTotalSize });
-      self.postMessage({ type: 'header-size', size: headerSize });
-
-      // 流式构建 mdat（跳过 header）
-      const stream = buildStream(prep, fileEntries, true);
+      // 2. 流式编码（header 先写，mdat 顺序跟）
+      const total = prep.headerBlob.size + prep.mdatTotalSize;
+      self.postMessage({ type: 'enc-size', total });
+      const stream = buildStream(prep, fileEntries);
       const reader = stream.getReader();
       let written = 0;
 
@@ -49,15 +45,12 @@ self.onmessage = async (event: MessageEvent) => {
         const { done, value } = await reader.read();
         if (done) break;
         written += value!.length;
-        self.postMessage({ type: 'enc-progress', pct: Math.round((written / prep.mdatTotalSize) * 100) });
+        self.postMessage({ type: 'enc-progress', pct: Math.round((written / total) * 100) });
         const copy = new Uint8Array(value!);
-            self.postMessage({ type: 'chunk', data: copy.buffer, size: copy.length }, [copy.buffer]);
+        self.postMessage({ type: 'chunk', data: copy.buffer, size: copy.length }, [copy.buffer]);
       }
 
       if (cancelFlag) throw new Error('已取消');
-
-      // 最后 seek 回位置 0 写入 header
-      self.postMessage({ type: 'chunk', data: headerBuf.buffer, size: headerBuf.length, pos: 0 }, [headerBuf.buffer]);
 
       self.postMessage({
         type: 'done',
