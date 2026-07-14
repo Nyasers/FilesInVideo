@@ -27,7 +27,7 @@ self.onmessage = async (event: MessageEvent) => {
         files: fileEntries,
         password,
         onProgress: (phase, pct) => {
-          self.postMessage({ type: 'progress', phase, pct });
+          self.postMessage({ type: 'prep-progress', phase, pct: Math.round(pct / 28 * 100) });
         },
       });
 
@@ -45,11 +45,7 @@ self.onmessage = async (event: MessageEvent) => {
         const { done, value } = await reader.read();
         if (done) break;
         written += value!.length;
-        self.postMessage({
-          type: 'progress',
-          phase: '编码中',
-          pct: 30 + Math.round((written / total) * 70),
-        });
+        self.postMessage({ type: 'enc-progress', pct: Math.round((written / total) * 100) });
         const copy = new Uint8Array(value!);
             self.postMessage({ type: 'chunk', data: copy.buffer, size: copy.length }, [copy.buffer]);
       }

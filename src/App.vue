@@ -36,7 +36,12 @@
             <div class="progress-bar"><div class="progress-fill" :style="{ width: encPrepProgress + '%' }"></div></div>
             <span class="progress-pct">{{ encPrepProgress }}%</span>
           </div>
-          <div v-if="encPhase === 'write'" class="progress-row">
+          <div v-if="encPhase === 'build'" class="progress-row">
+            <span class="progress-label">编码</span>
+            <div class="progress-bar"><div class="progress-fill" :style="{ width: encBuildProgress + '%' }"></div></div>
+            <span class="progress-pct">{{ encBuildProgress }}%</span>
+          </div>
+          <div v-if="encPhase === 'build'" class="progress-row">
             <span class="progress-label">写盘</span>
             <div class="progress-bar"><div class="progress-fill" :style="{ width: encWriteProgress + '%' }"></div></div>
             <span class="progress-pct">{{ encWriteProgress }}%</span>
@@ -115,8 +120,9 @@ const encError = ref('');
 const encoding = ref(false);
 const progress = ref('');
 const encPrepProgress = ref(0);
+const encBuildProgress = ref(0);
 const encWriteProgress = ref(0);
-const encPhase = ref<'prep' | 'write'>('prep');
+const encPhase = ref<'prep' | 'build'>('prep');
 let encBytesWritten = 0;
 const canEncode = computed(() => coverFile.value && encodeFiles.value.length > 0 && !encoding.value);
 
@@ -185,14 +191,17 @@ function onWorkerMsg(e: MessageEvent) {
 
   switch (msg.type) {
     // Encode
-    case 'progress':
-      encPrepProgress.value = Math.round(msg.pct / 28 * 100);
+    case 'prep-progress':
+      encPrepProgress.value = msg.pct;
       progress.value = msg.phase;
+      break;
+    case 'enc-progress':
+      encBuildProgress.value = msg.pct;
       break;
     case 'enc-size':
       encTotalSize = msg.total;
       encPrepProgress.value = 100;
-      encPhase.value = 'write';
+      encPhase.value = 'build';
       break;
     case 'chunk':
       encPendingChunks++;
@@ -260,6 +269,7 @@ async function doEncode() {
   encoding.value = true;
   encPhase.value = 'prep';
   encPrepProgress.value = 0;
+  encBuildProgress.value = 0;
   encWriteProgress.value = 0;
   encBytesWritten = 0;
   progress.value = '';
