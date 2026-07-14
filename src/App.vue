@@ -77,6 +77,8 @@ const mode = ref<'encode' | 'decode'>('encode');
 let worker: Worker | null = null;
 let writeHandle: FileSystemWritableFileStream | null = null;
 let decDirHandle: FileSystemDirectoryHandle | null = null;
+let decDoneFlag = false;
+let decPendingWrites = 0;
 
 function initWorker() {
   if (worker) return;
@@ -134,6 +136,13 @@ async function safeWriteFile(dir: FileSystemDirectoryHandle, name: string, data:
   await w.close();
 }
 
+function checkDecDone() {
+  if (decDoneFlag && decPendingWrites === 0) {
+    decDirHandle = null;
+    decoding.value = false;
+  }
+}
+
 // ── Worker 消息处理 ──
 
 function onWorkerMsg(e: MessageEvent) {
@@ -166,11 +175,14 @@ function onWorkerMsg(e: MessageEvent) {
       decPhase.value = msg.phase;
       break;
     case 'dec-file':
-      safeWriteFile(decDirHandle!, msg.name, new Uint8Array(msg.data)).catch(() => {});
+      decPendingWrites++;
+      safeWriteFile(decDirHandle!, msg.name, new Uint8Array(msg.data))
+        .finally(() => { decPendingWrites--; checkDecDone(); })
+        .catch(() => {});
       break;
     case 'dec-done':
-      decDirHandle = null;
-      decoding.value = false;
+      decDoneFlag = true;
+      checkDecDone();
       break;
     // Shared
     case 'error':
@@ -181,6 +193,8 @@ function onWorkerMsg(e: MessageEvent) {
       break;
     case 'dec-error':
       decDirHandle = null;
+      decDoneFlag = false;
+      decPendingWrites = 0;
       decError.value = msg.error;
       decoding.value = false;
       break;
@@ -222,6 +236,8 @@ async function doDecode() {
   decoding.value = true;
   decProgress.value = 0;
   decPhase.value = '';
+  decDoneFlag = false;
+  decPendingWrites = 0;
   try {
     if (!('showDirectoryPicker' in window)) throw new Error('浏览器不支持，请使用 Chrome / Edge');
     decDirHandle = await (window as any).showDirectoryPicker();
