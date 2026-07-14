@@ -31,7 +31,7 @@
           </div>
         </div>
         <div v-if="encoding" class="progress-wrap">
-          <div v-if="encPhase === 'prep'" class="progress-row">
+          <div v-if="encPhase === 'prep' || encPrepProgress >= 100" class="progress-row">
             <span class="progress-label">准备</span>
             <div class="progress-bar"><div class="progress-fill" :style="{ width: encPrepProgress + '%' }"></div></div>
             <span class="progress-pct">{{ encPrepProgress }}%</span>
@@ -65,8 +65,16 @@
           {{ decoding ? '⏳' : '🔓 解码到目录' }}
         </button>
         <div v-if="decoding" class="progress-wrap">
-          <div class="progress-bar"><div class="progress-fill" :style="{ width: decProgress + '%' }"></div></div>
-          <p class="progress-text">{{ decPhase || '解码中…' }}</p>
+          <div class="progress-row">
+            <span class="progress-label">总体</span>
+            <div class="progress-bar"><div class="progress-fill" :style="{ width: decProgress + '%' }"></div></div>
+            <span class="progress-pct">{{ decProgress }}%</span>
+          </div>
+          <div v-for="f in decFiles" :key="f.name" class="progress-row">
+            <span class="progress-label">📄</span>
+            <div class="progress-bar"><div class="progress-fill done" :style="{ width: f.done ? '100%' : '0%' }"></div></div>
+            <span class="progress-pct">{{ f.done ? '✓' : '⏳' }}</span>
+          </div>
         </div>
         <div v-if="decError" class="error">{{ decError }}</div>
       </section>
@@ -134,6 +142,7 @@ const decError = ref('');
 const decoding = ref(false);
 const decProgress = ref(0);
 const decPhase = ref('');
+const decFiles = ref<{ name: string; size: number; done: boolean }[]>([]);
 const canDecode = computed(() => fivFile.value && !decoding.value);
 
 function formatSize(bytes: number): string {
@@ -205,10 +214,18 @@ function onWorkerMsg(e: MessageEvent) {
       decProgress.value = msg.pct;
       decPhase.value = msg.phase;
       break;
+    case 'dec-file-start':
+      decFiles.value.push({ name: msg.name, size: msg.size, done: false });
+      break;
     case 'dec-file':
       decPendingWrites++;
       safeWriteFile(decDirHandle!, msg.name, new Uint8Array(msg.data))
-        .finally(() => { decPendingWrites--; checkDecDone(); })
+        .finally(() => {
+          const entry = decFiles.value.find(f => f.name === msg.name && !f.done);
+          if (entry) entry.done = true;
+          decPendingWrites--;
+          checkDecDone();
+        })
         .catch(() => {});
       break;
     case 'dec-done':
@@ -274,6 +291,7 @@ async function doDecode() {
   decoding.value = true;
   decProgress.value = 0;
   decPhase.value = '';
+  decFiles.value = [];
   decDoneFlag = false;
   decPendingWrites = 0;
   try {

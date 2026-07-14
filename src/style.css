@@ -276,6 +276,10 @@ body {
   transition: width 0.2s ease;
 }
 
+.progress-fill.done {
+  background: var(--success);
+}
+
 .progress-text {
   font-size: 12px;
   color: var(--text-dim);

@@ -82,6 +82,7 @@ self.onmessage = async (event: MessageEvent) => {
       if (cancelFlag) throw new Error('已取消');
 
       for (const file of result.files) {
+        self.postMessage({ type: 'dec-file-start', name: file.name, size: file.size });
         const buf = new Uint8Array(await file.blob.arrayBuffer());
         self.postMessage(
           { type: 'dec-file', name: file.name, size: file.size, data: buf.buffer },
