@@ -119,6 +119,21 @@ function onCoverSelect(f: File) { coverFile.value = f; encResult.value = null; e
 function onFilesSelect(fs: File[]) { encodeFiles.value = fs; encResult.value = null; encError.value = ''; }
 function onFivSelect(f: File) { fivFile.value = f; decError.value = ''; }
 
+async function safeWriteFile(dir: FileSystemDirectoryHandle, name: string, data: Uint8Array) {
+  const dot = name.lastIndexOf('.');
+  const stem = dot >= 0 ? name.slice(0, dot) : name;
+  const ext = dot >= 0 ? name.slice(dot) : '';
+  let tryName = name;
+  for (let i = 1; i < 1000; i++) {
+    try { await dir.getFileHandle(tryName, { create: false }); tryName = `${stem} (${i})${ext}`; }
+    catch (e: any) { if (e.name === 'NotFoundError') break; throw e; }
+  }
+  const fh = await dir.getFileHandle(tryName, { create: true });
+  const w = await fh.createWritable();
+  await w.write(data);
+  await w.close();
+}
+
 // ── Worker 消息处理 ──
 
 function onWorkerMsg(e: MessageEvent) {
@@ -151,11 +166,7 @@ function onWorkerMsg(e: MessageEvent) {
       decPhase.value = msg.phase;
       break;
     case 'dec-file':
-      decDirHandle?.getFileHandle(msg.name, { create: true }).then(async (fh) => {
-        const w = await fh.createWritable();
-        await w.write(new Uint8Array(msg.data));
-        await w.close();
-      }).catch(() => {});
+      safeWriteFile(decDirHandle!, msg.name, new Uint8Array(msg.data)).catch(() => {});
       break;
     case 'dec-done':
       decDirHandle = null;
