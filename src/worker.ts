@@ -33,10 +33,14 @@ self.onmessage = async (event: MessageEvent) => {
 
       if (cancelFlag) throw new Error('已取消');
 
-      // 2. 流式编码，逐 chunk 投递
-      const total = prep.headerBlob.size + prep.mdatTotalSize;
-      self.postMessage({ type: 'enc-size', total });
-      const stream = buildStream(prep, fileEntries);
+      // 2. 提取 header，主线程 seek 到 headerSize 后再写 mdat
+      const headerBuf = new Uint8Array(await prep.headerBlob.arrayBuffer());
+      const headerSize = headerBuf.byteLength;
+      self.postMessage({ type: 'enc-size', total: headerSize + prep.mdatTotalSize });
+      self.postMessage({ type: 'header-size', size: headerSize });
+
+      // 流式构建 mdat（跳过 header）
+      const stream = buildStream(prep, fileEntries, true);
       const reader = stream.getReader();
       let written = 0;
 
@@ -53,7 +57,7 @@ self.onmessage = async (event: MessageEvent) => {
       if (cancelFlag) throw new Error('已取消');
 
       // 最后 seek 回位置 0 写入 header
-      self.postMessage({ type: 'chunk', data: headerBuf.slice(0).buffer, size: headerBuf.length, pos: 0 }, [headerBuf.slice(0).buffer]);
+      self.postMessage({ type: 'chunk', data: headerBuf.buffer, size: headerBuf.length, pos: 0 }, [headerBuf.buffer]);
 
       self.postMessage({
         type: 'done',
