@@ -1,10 +1,9 @@
 /**
- * FilesInVideo Web Worker — 编码引擎
- * 接收编码任务，执行 prepareEncode + buildStream，
- * 通过 postMessage 回报进度和 chunk 数据。
+ * FilesInVideo Web Worker — 编码 / 解码引擎
  */
 
 import { prepareEncode, buildStream } from './lib/encoder';
+import { decode } from './lib/decoder';
 import type { FileEntry } from './lib/types';
 
 let cancelFlag = false;
@@ -50,7 +49,6 @@ self.onmessage = async (event: MessageEvent) => {
           phase: '编码中',
           pct: 30 + Math.round((written / total) * 70),
         });
-        // 复制一份独立 buffer 再投递，避免共享 ArrayBuffer 被 GC 干扰
         const copy = new Uint8Array(value!);
         self.postMessage({ type: 'chunk', data: copy.buffer }, [copy.buffer]);
       }
@@ -65,6 +63,35 @@ self.onmessage = async (event: MessageEvent) => {
       });
     } catch (e: any) {
       self.postMessage({ type: 'error', error: e.message || String(e) });
+    }
+  } else if (msg.type === 'decode') {
+    cancelFlag = false;
+    try {
+      const { blob, password } = msg;
+
+      const result = await decode({
+        blob,
+        password,
+        onProgress: (phase, pct) => {
+          if (cancelFlag) throw new Error('已取消');
+          self.postMessage({ type: 'dec-progress', phase, pct });
+        },
+      });
+
+      if (cancelFlag) throw new Error('已取消');
+
+      // 逐个文件投递，transfer buffer 零拷贝
+      for (const file of result.files) {
+        const buf = new Uint8Array(await file.blob.arrayBuffer());
+        self.postMessage(
+          { type: 'dec-file', name: file.name, size: file.size, data: buf.buffer },
+          [buf.buffer],
+        );
+      }
+
+      self.postMessage({ type: 'dec-done' });
+    } catch (e: any) {
+      self.postMessage({ type: 'dec-error', error: e.message || String(e) });
     }
   } else if (msg.type === 'cancel') {
     cancelFlag = true;

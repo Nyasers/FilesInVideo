@@ -66,14 +66,20 @@
         </div>
 
         <button class="btn primary" :disabled="!canDecode || decoding" @click="doDecode">
-          {{ decoding ? `解码中... ${progress}` : '解码' }}
+          {{ decoding ? '⏳' : '🔓 解码' }}
         </button>
 
-        <div v-if="decResult" class="result">
-          <p>✓ 解码完成，{{ decResult.files.length }} 个文件</p>
+        <!-- 进度条 -->
+        <div v-if="decoding" class="progress-wrap">
+          <div class="progress-bar"><div class="progress-fill" :style="{ width: decProgress + '%' }"></div></div>
+          <p class="progress-text">{{ decPhase || '解码中…' }}</p>
+        </div>
+
+        <div v-if="decResult && decResult.length" class="result">
+          <p>✅ 解码完成，{{ decResult.length }} 个文件</p>
           <ul class="file-list">
-            <li v-for="(f, i) in decResult.files" :key="i">
-              <a :href="URL.createObjectURL(f.blob)" :download="f.name">{{ f.name }} ({{ formatSize(f.size) }})</a>
+            <li v-for="(f, i) in decResult" :key="i">
+              <a :href="blobUrl(f.blob)" :download="f.name">{{ f.name }} ({{ formatSize(f.size) }})</a>
             </li>
           </ul>
         </div>
@@ -87,7 +93,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import FileInput from './components/FileInput.vue';
-import { decode, type DecodeResult } from './lib';
 
 const mode = ref<'encode' | 'decode'>('encode');
 
@@ -123,13 +128,18 @@ const encProgress = ref(0);
 
 const canEncode = computed(() => coverFile.value && encodeFiles.value.length > 0 && !encoding.value);
 
+interface DecFile { name: string; size: number; blob: Blob }
+
 // ── Decode State ──
 
 const fivFile = ref<File | null>(null);
 const decPassword = ref('');
-const decResult = ref<DecodeResult | null>(null);
+const decResult = ref<DecFile[] | null>(null);
 const decError = ref('');
 const decoding = ref(false);
+
+const decProgress = ref(0);
+const decPhase = ref('');
 
 const canDecode = computed(() => fivFile.value && !decoding.value);
 
@@ -138,6 +148,8 @@ function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
+
+function blobUrl(blob: Blob) { return URL.createObjectURL(blob); }
 
 function onCoverSelect(f: File) { coverFile.value = f; encResult.value = null; encError.value = ''; }
 function onFilesSelect(fs: File[]) { encodeFiles.value = fs; encResult.value = null; encError.value = ''; }
@@ -167,6 +179,23 @@ function onWorkerMsg(e: MessageEvent) {
       }).catch(() => {});
       writeHandle = null;
       encoding.value = false;
+      break;
+    case 'dec-progress':
+      decProgress.value = msg.pct;
+      decPhase.value = msg.phase;
+      break;
+    case 'dec-file': {
+      const blob = new Blob([msg.data]);
+      if (!decResult.value) decResult.value = [];
+      decResult.value.push({ name: msg.name, size: msg.size, blob });
+      break;
+    }
+    case 'dec-done':
+      decoding.value = false;
+      break;
+    case 'dec-error':
+      decError.value = msg.error;
+      decoding.value = false;
       break;
     case 'error':
       writeHandle?.close().catch(() => {});
@@ -226,20 +255,15 @@ async function doDecode() {
   decError.value = '';
   decResult.value = null;
   decoding.value = true;
+  decProgress.value = 0;
+  decPhase.value = '';
 
-  try {
-    const result = await decode({
-      blob: fivFile.value,
-      password: decPassword.value,
-      onProgress: (phase, pct) => {
-        progress.value = `${phase} ${pct}%`;
-      },
-    });
-    decResult.value = result;
-  } catch (e: any) {
-    decError.value = e.message || String(e);
-  } finally {
-    decoding.value = false;
-  }
+  initWorker();
+
+  worker!.postMessage({
+    type: 'decode',
+    blob: fivFile.value,
+    password: decPassword.value,
+  });
 }
 </script>
