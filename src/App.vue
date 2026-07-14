@@ -205,10 +205,13 @@ function onWorkerMsg(e: MessageEvent) {
       break;
     case 'chunk':
       encPendingChunks++;
-      encBytesWritten += msg.size;
-      if (encTotalSize > 0) encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
       writeHandle?.write(new Uint8Array(msg.data))
-        .finally(() => { encPendingChunks--; checkEncDone(); })
+        .finally(() => {
+          encBytesWritten += msg.size;
+          if (encTotalSize > 0) encWriteProgress.value = Math.round((encBytesWritten / encTotalSize) * 100);
+          encPendingChunks--;
+          checkEncDone();
+        })
         .catch(() => {});
       break;
     case 'done':
