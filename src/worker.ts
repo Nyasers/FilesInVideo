@@ -49,7 +49,7 @@ self.onmessage = async (event: MessageEvent) => {
         const { done, value } = await reader.read();
         if (done) break;
         written += value!.length;
-        self.postMessage({ type: 'enc-progress', pct: Math.round((written / total) * 100) });
+        self.postMessage({ type: 'enc-progress', pct: Math.round((written / prep.mdatTotalSize) * 100) });
         const copy = new Uint8Array(value!);
             self.postMessage({ type: 'chunk', data: copy.buffer, size: copy.length }, [copy.buffer]);
       }
