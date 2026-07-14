@@ -31,17 +31,16 @@
           </div>
         </div>
         <div v-if="encoding" class="progress-wrap">
-          <div class="progress-row">
+          <div v-if="encPhase === 'prep'" class="progress-row">
             <span class="progress-label">准备</span>
             <div class="progress-bar"><div class="progress-fill" :style="{ width: encPrepProgress + '%' }"></div></div>
             <span class="progress-pct">{{ encPrepProgress }}%</span>
           </div>
-          <div class="progress-row">
+          <div v-if="encPhase === 'write'" class="progress-row">
             <span class="progress-label">写盘</span>
             <div class="progress-bar"><div class="progress-fill" :style="{ width: encWriteProgress + '%' }"></div></div>
             <span class="progress-pct">{{ encWriteProgress }}%</span>
           </div>
-          <p class="progress-text">{{ progress || '准备中…' }}</p>
         </div>
         <button class="btn primary" :disabled="!canEncode || encoding" @click="doEncode">
           {{ encoding ? '⏳' : '🎬 编码并下载' }}
@@ -109,6 +108,7 @@ const encoding = ref(false);
 const progress = ref('');
 const encPrepProgress = ref(0);
 const encWriteProgress = ref(0);
+const encPhase = ref<'prep' | 'write'>('prep');
 let encBytesWritten = 0;
 const canEncode = computed(() => coverFile.value && encodeFiles.value.length > 0 && !encoding.value);
 
@@ -177,11 +177,13 @@ function onWorkerMsg(e: MessageEvent) {
   switch (msg.type) {
     // Encode
     case 'progress':
-      encPrepProgress.value = msg.pct;
+      encPrepProgress.value = Math.round(msg.pct / 28 * 100);
       progress.value = msg.phase;
       break;
     case 'enc-size':
       encTotalSize = msg.total;
+      encPrepProgress.value = 100;
+      encPhase.value = 'write';
       break;
     case 'chunk':
       encPendingChunks++;
@@ -239,6 +241,7 @@ async function doEncode() {
   encError.value = '';
   encResult.value = null;
   encoding.value = true;
+  encPhase.value = 'prep';
   encPrepProgress.value = 0;
   encWriteProgress.value = 0;
   encBytesWritten = 0;
